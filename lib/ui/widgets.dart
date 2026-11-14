@@ -2,18 +2,41 @@ import 'package:material_ui/material_ui.dart';
 
 import '../engine/cards.dart';
 import '../engine/hand_class.dart';
+import '../engine/preflop_solver.dart';
 
 const Color foldColor = Color(0xFF2A333D);
 const Color pushColor = Color(0xFFE5484D);
 const Color callColor = Color(0xFF30A46C);
 const Color rangeColor = Color(0xFF3E9BF5);
+const Color raiseColor = Color(0xFFF5A623);
+const Color limpColor = Color(0xFF12A5C4);
+const Color checkColor = Color(0xFF6B8AA6);
+
+Color actionColor(PokerAction a) => switch (a) {
+      PokerAction.fold => foldColor,
+      PokerAction.check => checkColor,
+      PokerAction.call => callColor,
+      PokerAction.limp => limpColor,
+      PokerAction.raise => raiseColor,
+      PokerAction.allIn => pushColor,
+    };
+
+/// Strato della griglia: frequenze (169) e colore.
+typedef GridLayer = ({List<double> values, Color color});
+
+/// Strati per un nodo di strategia (il fold resta lo sfondo).
+List<GridLayer> nodeLayers(StrategyNode node) => [
+      for (var k = 0; k < node.actions.length; k++)
+        if (node.actions[k] != PokerAction.fold) (values: node.freq[k], color: actionColor(node.actions[k])),
+    ];
 
 /// Griglia 13x13 delle mani preflop. Ogni cella è riempita in proporzione
 /// alla frequenza (0..1).
 class RangeGrid extends StatelessWidget {
   const RangeGrid({
     super.key,
-    required this.values,
+    this.values,
+    this.layers,
     this.color = pushColor,
     this.selected,
     this.onCellTap,
@@ -21,7 +44,8 @@ class RangeGrid extends StatelessWidget {
     this.onPaintUpdate,
   });
 
-  final List<double> values;
+  final List<double>? values;
+  final List<GridLayer>? layers;
   final Color color;
   final int? selected;
   final ValueChanged<int>? onCellTap;
@@ -62,7 +86,7 @@ class RangeGrid extends StatelessWidget {
                 },
           child: CustomPaint(
             size: Size.square(size),
-            painter: _GridPainter(values, color, selected),
+            painter: _GridPainter(layers ?? [(values: values ?? List.filled(169, 0.0), color: color)], selected),
           ),
         );
       }),
@@ -71,17 +95,16 @@ class RangeGrid extends StatelessWidget {
 }
 
 class _GridPainter extends CustomPainter {
-  _GridPainter(this.values, this.color, this.selected);
+  _GridPainter(this.layers, this.selected);
 
-  final List<double> values;
-  final Color color;
+  final List<GridLayer> layers;
   final int? selected;
 
   @override
   void paint(Canvas canvas, Size size) {
     final cell = size.width / 13;
     final bg = Paint()..color = foldColor;
-    final fill = Paint()..color = color;
+    final fills = [for (final l in layers) Paint()..color = l.color];
     final border = Paint()
       ..color = const Color(0xFF12171C)
       ..style = PaintingStyle.stroke
@@ -89,9 +112,14 @@ class _GridPainter extends CustomPainter {
     for (var idx = 0; idx < 169; idx++) {
       final r = Rect.fromLTWH((idx % 13) * cell, (idx ~/ 13) * cell, cell, cell);
       canvas.drawRect(r, bg);
-      final v = values[idx].clamp(0.0, 1.0);
-      if (v > 0) {
-        canvas.drawRect(Rect.fromLTWH(r.left, r.top, r.width * v, r.height), fill);
+      var x = r.left, v = 0.0;
+      for (var l = 0; l < layers.length; l++) {
+        final f = layers[l].values[idx].clamp(0.0, 1.0);
+        if (f <= 0) continue;
+        final wdt = r.width * f;
+        canvas.drawRect(Rect.fromLTWH(x, r.top, wdt, r.height), fills[l]);
+        x += wdt;
+        v += f;
       }
       canvas.drawRect(r, border);
       final tp = TextPainter(

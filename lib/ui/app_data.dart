@@ -3,6 +3,7 @@ import 'dart:isolate';
 import 'package:flutter/services.dart';
 
 import '../engine/preflop_data.dart';
+import '../engine/preflop_solver.dart';
 import '../engine/pushfold.dart';
 
 /// Dati condivisi dell'app e cache delle soluzioni.
@@ -38,6 +39,27 @@ class SolverCache {
       return s;
     });
     _pending[key] = f;
+    return f;
+  }
+
+  static final Map<String, FullPreflopSolution> _fullCache = {};
+  static final Map<String, Future<FullPreflopSolution>> _fullPending = {};
+
+  static FullPreflopSolution? cachedFull(PushFoldConfig cfg) => _fullCache[cfg.key];
+
+  static Future<FullPreflopSolution> solveFull(PushFoldConfig cfg) {
+    final key = cfg.key;
+    final hit = _fullCache[key];
+    if (hit != null) return Future.value(hit);
+    final pending = _fullPending[key];
+    if (pending != null) return pending;
+    final data = AppData.preflop;
+    final f = Isolate.run(() => solveFullPreflop(cfg, data)).then((s) {
+      _fullCache[key] = s;
+      _fullPending.remove(key);
+      return s;
+    });
+    _fullPending[key] = f;
     return f;
   }
 }

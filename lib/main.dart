@@ -65,7 +65,7 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int tab = 0;
 
-  static const _titles = ['Tabelle Nash push/fold', 'Trainer', 'Calcolatore equity'];
+  static const _titles = ['Tabelle di strategia', 'Trainer', 'Calcolatore equity'];
 
   @override
   Widget build(BuildContext context) {

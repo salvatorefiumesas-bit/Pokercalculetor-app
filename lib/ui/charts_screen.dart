@@ -1,14 +1,14 @@
-import 'dart:typed_data';
-
 import 'package:material_ui/material_ui.dart';
 
 import '../engine/hand_class.dart';
+import '../engine/preflop_solver.dart';
 import '../engine/pushfold.dart';
-import '../engine/range.dart';
 import 'app_data.dart';
+import 'situations.dart';
 import 'widgets.dart';
 
-/// Tabelle di Nash push/fold per tornei.
+/// Tabelle di strategia: preflop completo (rilancio/limp/call/all-in) oppure
+/// push/fold classico.
 class ChartsScreen extends StatefulWidget {
   const ChartsScreen({super.key});
 
@@ -17,15 +17,20 @@ class ChartsScreen extends StatefulWidget {
 }
 
 class _ChartsScreenState extends State<ChartsScreen> {
+  bool full = true;
   int players = 9;
-  int stack = 10;
+  int stack = 20;
   AnteType ante = AnteType.bigBlindAnte;
-  bool callMode = false;
-  int pusher = 0;
-  int caller = 8;
+  int opener = 0;
+  int responder = 8;
+  Situation situation = Situation.open;
+  bool callMode = false; // solo push/fold
   int? selected;
-  PushFoldSolution? solution;
+
+  PushFoldSolution? pf;
+  FullPreflopSolution? fullSol;
   bool loading = false;
+  int _request = 0;
 
   @override
   void initState() {
@@ -33,49 +38,85 @@ class _ChartsScreenState extends State<ChartsScreen> {
     _refresh();
   }
 
-  PushFoldConfig get _cfg => PushFoldConfig(players: players, stack: stack, ante: ante, pusher: pusher);
+  PushFoldConfig get _cfg => PushFoldConfig(players: players, stack: stack, ante: ante, pusher: opener);
 
   Future<void> _refresh() async {
+    final req = ++_request;
     final cfg = _cfg;
-    final hit = SolverCache.cached(cfg);
-    if (hit != null) {
+    final hit = full ? SolverCache.cachedFull(cfg) : SolverCache.cached(cfg);
+    if (hit == null) setState(() => loading = true);
+    if (full) {
+      final s = await SolverCache.solveFull(cfg);
+      if (!mounted || req != _request) return;
       setState(() {
-        solution = hit;
+        fullSol = s;
         loading = false;
       });
-      return;
+    } else {
+      final s = await SolverCache.solve(cfg);
+      if (!mounted || req != _request) return;
+      setState(() {
+        pf = s;
+        loading = false;
+      });
     }
-    setState(() => loading = true);
-    final s = await SolverCache.solve(cfg);
-    if (!mounted || s.config.key != _cfg.key) return;
-    setState(() {
-      solution = s;
-      loading = false;
-    });
   }
 
-  void _setPlayers(int p) {
-    players = p;
-    pusher = pusher.clamp(0, p - 2);
-    caller = p - 1;
-    _refresh();
+  void _fixPositions() {
+    opener = opener.clamp(0, players - 2);
+    if (full && situation.sbOnly) opener = players - 2;
+    if (responder <= opener || responder >= players) responder = players - 1;
+  }
+
+  StrategyNode? get _node {
+    final key = _cfg.key;
+    if (full) {
+      final s = fullSol;
+      if (s == null || s.config.key != key) return null;
+      return nodeFor(s, situation, responder);
+    }
+    final s = pf;
+    if (s == null || s.config.key != key) return null;
+    return callMode ? s.callNode(responder) : s.openNode;
+  }
+
+  String get _description {
+    final names = positionNames(players);
+    if (full) {
+      final s = fullSol;
+      if (s == null || s.config.key != _cfg.key) return '';
+      return describeSituation(s, situation, responder);
+    }
+    return callMode
+        ? '${names[opener]} va all-in ($stack BB), tutti foldano fino a te in ${names[responder]}.'
+        : 'Tutti foldano fino a te in ${names[opener]}.';
   }
 
   @override
   Widget build(BuildContext context) {
     final names = positionNames(players);
-    final sol = solution;
-    Float64List? freq, ev;
-    if (sol != null && sol.config.key == _cfg.key) {
-      freq = callMode ? sol.call[caller] : sol.push;
-      ev = callMode ? sol.callEv[caller] : sol.pushEv;
-    }
-    final color = callMode ? callColor : pushColor;
-    final actionName = callMode ? 'Call' : 'All-in';
+    final node = _node;
+    final needsResponder = full ? situation.needsResponder : callMode;
+    final minStack = full ? 5 : 2;
 
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
+        SegmentedButton<bool>(
+          segments: const [
+            ButtonSegment(value: true, label: Text('Preflop completo')),
+            ButtonSegment(value: false, label: Text('Push/Fold')),
+          ],
+          selected: {full},
+          showSelectedIcon: false,
+          onSelectionChanged: (v) {
+            full = v.first;
+            if (stack < minStack) stack = 5;
+            _fixPositions();
+            _refresh();
+          },
+        ),
+        const SizedBox(height: 8),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(12),
@@ -86,16 +127,20 @@ class _ChartsScreenState extends State<ChartsScreen> {
                 DropdownButton<int>(
                   value: players,
                   items: [for (var p = 2; p <= 9; p++) DropdownMenuItem(value: p, child: Text('$p'))],
-                  onChanged: (v) => _setPlayers(v!),
+                  onChanged: (v) {
+                    players = v!;
+                    _fixPositions();
+                    _refresh();
+                  },
                 ),
                 const Spacer(),
                 Text('Stack: $stack BB', style: const TextStyle(fontWeight: FontWeight.bold)),
               ]),
               Slider(
-                value: stack.toDouble(),
-                min: 2,
-                max: 25,
-                divisions: 23,
+                value: stack.toDouble().clamp(minStack.toDouble(), 30),
+                min: minStack.toDouble(),
+                max: 30,
+                divisions: 30 - minStack,
                 label: '$stack BB',
                 onChanged: (v) => setState(() => stack = v.round()),
                 onChangeEnd: (_) => _refresh(),
@@ -110,41 +155,64 @@ class _ChartsScreenState extends State<ChartsScreen> {
                 },
               ),
               const SizedBox(height: 12),
-              SegmentedButton<bool>(
-                segments: const [
-                  ButtonSegment(value: false, label: Text('Apertura all-in')),
-                  ButtonSegment(value: true, label: Text('Call vs all-in')),
-                ],
-                selected: {callMode},
-                showSelectedIcon: false,
-                onSelectionChanged: (s) => setState(() {
-                  callMode = s.first;
-                  if (caller <= pusher) caller = players - 1;
-                }),
-              ),
-              const SizedBox(height: 8),
-              Text(callMode ? 'Chi va all-in:' : 'La tua posizione:'),
-              Wrap(spacing: 6, children: [
-                for (var i = 0; i < players - 1; i++)
-                  ChoiceChip(
-                    label: Text(names[i]),
-                    selected: pusher == i,
-                    onSelected: (_) {
-                      pusher = i;
-                      if (caller <= pusher) caller = players - 1;
+              if (full)
+                DropdownButtonFormField<Situation>(
+                  initialValue: situation,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Situazione', border: OutlineInputBorder(), isDense: true),
+                  items: [
+                    for (final s in Situation.values)
+                      DropdownMenuItem(value: s, child: Text(s.label, overflow: TextOverflow.ellipsis)),
+                  ],
+                  onChanged: (v) {
+                    situation = v!;
+                    final before = opener;
+                    _fixPositions();
+                    if (before != opener) {
                       _refresh();
-                    },
-                  ),
-              ]),
-              if (callMode) ...[
-                const SizedBox(height: 4),
-                const Text('La tua posizione:'),
+                    } else {
+                      setState(() {});
+                    }
+                  },
+                )
+              else
+                SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(value: false, label: Text('Apertura all-in')),
+                    ButtonSegment(value: true, label: Text('Call vs all-in')),
+                  ],
+                  selected: {callMode},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (s) => setState(() {
+                    callMode = s.first;
+                    _fixPositions();
+                  }),
+                ),
+              const SizedBox(height: 8),
+              if (!(full && situation.sbOnly)) ...[
+                Text(needsResponder ? 'Chi apre:' : 'La tua posizione:'),
                 Wrap(spacing: 6, children: [
-                  for (var j = pusher + 1; j < players; j++)
+                  for (var i = 0; i < players - 1; i++)
+                    ChoiceChip(
+                      label: Text(names[i]),
+                      selected: opener == i,
+                      onSelected: (_) {
+                        opener = i;
+                        _fixPositions();
+                        _refresh();
+                      },
+                    ),
+                ]),
+              ],
+              if (needsResponder) ...[
+                const SizedBox(height: 4),
+                Text(full && situation == Situation.raiseVsJam ? 'Chi va all-in:' : 'La tua posizione:'),
+                Wrap(spacing: 6, children: [
+                  for (var j = opener + 1; j < players; j++)
                     ChoiceChip(
                       label: Text(names[j]),
-                      selected: caller == j,
-                      onSelected: (_) => setState(() => caller = j),
+                      selected: responder == j,
+                      onSelected: (_) => setState(() => responder = j),
                     ),
                 ]),
               ],
@@ -152,52 +220,90 @@ class _ChartsScreenState extends State<ChartsScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        Text(
-          callMode
-              ? '${names[pusher]} va all-in ($stack BB), tutti foldano fino a te in ${names[caller]}'
-              : 'Tutti foldano fino a te in ${names[pusher]}',
-          style: Theme.of(context).textTheme.titleSmall,
-        ),
+        Text(_description, style: Theme.of(context).textTheme.titleSmall),
+        if (node != null && !node.reachable)
+          const Padding(
+            padding: EdgeInsets.only(top: 4),
+            child: Text(
+              'All\'equilibrio questa situazione non capita mai: la tabella è solo indicativa.',
+              style: TextStyle(color: Color(0xFFF5A623), fontSize: 12),
+            ),
+          ),
         const SizedBox(height: 8),
         Stack(alignment: Alignment.center, children: [
           RangeGrid(
-            values: freq ?? Float64List(169),
-            color: color,
+            layers: node == null ? const [] : nodeLayers(node),
             selected: selected,
             onCellTap: (i) => setState(() => selected = i),
           ),
-          if (loading || freq == null) const CircularProgressIndicator(),
+          if (loading || node == null) const CircularProgressIndicator(),
         ]),
         const SizedBox(height: 8),
-        if (freq != null) ...[
-          Row(children: [
-            LegendDot(color, actionName),
-            const SizedBox(width: 16),
-            const LegendDot(foldColor, 'Fold'),
-            const Spacer(),
-            Text('$actionName: ${HandRange(freq).percent.toStringAsFixed(1)}% delle mani',
-                style: const TextStyle(fontWeight: FontWeight.bold)),
+        if (node != null) ...[
+          Wrap(spacing: 14, runSpacing: 6, children: [
+            for (var k = 0; k < node.actions.length; k++)
+              LegendDot(actionColor(node.actions[k]),
+                  '${node.actions[k].label} ${node.percent(k).toStringAsFixed(1)}%'),
           ]),
           const SizedBox(height: 8),
           if (selected != null)
-            Card(
-              child: ListTile(
-                title: Text(HandClass.name(selected!), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
-                subtitle: Text('$actionName ${fmtPct(freq[selected!])} · EV $actionName ${fmtEv(ev![selected!])} (vs fold)'),
-              ),
-            )
+            HandInfoCard(node: node, hand: selected!)
           else
-            const Text('Tocca una mano per vedere frequenza ed EV.'),
-          const SizedBox(height: 8),
-          SelectableText(HandRange(freq).toString(), style: const TextStyle(fontSize: 12, color: Colors.white70)),
+            const Text('Tocca una mano per vedere frequenze ed EV.'),
         ],
         const SizedBox(height: 12),
-        const Text(
-          'Equilibrio di Nash in chip EV: un solo caller, niente ICM. '
-          'Ideale per stack corti (fino a ~20 BB).',
-          style: TextStyle(fontSize: 12, color: Colors.white54),
+        Text(
+          full
+              ? 'Equilibrio approssimato in chip EV. Contro un rilancio solo il BB può fare call; '
+                  'il gioco dopo il flop è stimato con l\'equity realization (in posizione ×1,1, '
+                  'fuori posizione ×0,7, corretta per la giocabilità della mano). Rilancio: 2 BB, dallo SB 3 BB '
+                  '(2,5 in heads-up).'
+              : 'Equilibrio di Nash in chip EV: un solo caller, niente ICM. Ideale fino a ~15 BB.',
+          style: const TextStyle(fontSize: 12, color: Colors.white54),
         ),
       ],
+    );
+  }
+}
+
+/// Dettaglio di una mano: frequenza ed EV di ogni azione.
+class HandInfoCard extends StatelessWidget {
+  const HandInfoCard({super.key, required this.node, required this.hand});
+
+  final StrategyNode node;
+  final int hand;
+
+  @override
+  Widget build(BuildContext context) {
+    final best = node.bestAction(hand);
+    final base = node.actions.first.label;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(HandClass.name(hand), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+          const SizedBox(height: 6),
+          for (var k = 0; k < node.actions.length; k++)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(children: [
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                      color: actionColor(node.actions[k]), borderRadius: BorderRadius.circular(3)),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(width: 80, child: Text(node.actions[k].label)),
+                SizedBox(width: 56, child: Text(fmtPct(node.freq[k][hand]))),
+                Text(k == 0 ? 'EV 0 (base)' : 'EV ${fmtEv(node.ev[k][hand])}',
+                    style: TextStyle(fontWeight: k == best ? FontWeight.bold : FontWeight.normal)),
+              ]),
+            ),
+          const SizedBox(height: 4),
+          Text('EV in BB rispetto a $base.', style: const TextStyle(fontSize: 11, color: Colors.white54)),
+        ]),
+      ),
     );
   }
 }

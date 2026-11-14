@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'preflop_data.dart';
+import 'preflop_solver.dart';
 
 /// Tipo di ante del torneo.
 enum AnteType {
@@ -10,6 +11,13 @@ enum AnteType {
 
   final String label;
   const AnteType(this.label);
+
+  /// Descrizione breve per le frasi (es. "9 giocatori · BB ante").
+  String get short => switch (this) {
+        AnteType.none => 'senza ante',
+        AnteType.bigBlindAnte => 'BB ante',
+        AnteType.classic => 'ante classico',
+      };
 
   /// Ante totale (dead money) in big blind.
   double total(int players) => switch (this) {
@@ -71,6 +79,22 @@ class PushFoldSolution {
   final double exploitability;
 
   PushFoldSolution(this.config, this.push, this.pushEv, this.call, this.callEv, this.exploitability);
+
+  /// Nodo "tutti foldano fino a te": fold o all-in.
+  StrategyNode get openNode => StrategyNode(
+        config.pusher,
+        const [PokerAction.fold, PokerAction.allIn],
+        [Float64List.fromList([for (final f in push) 1 - f]), push],
+        [Float64List(169), pushEv],
+      );
+
+  /// Nodo "la posizione j risponde all'all-in": fold o call.
+  StrategyNode callNode(int j) => StrategyNode(
+        j,
+        const [PokerAction.fold, PokerAction.call],
+        [Float64List.fromList([for (final f in call[j]!) 1 - f]), call[j]!],
+        [Float64List(169), callEv[j]!],
+      );
 }
 
 /// Risolve lo spot con fictitious play.
