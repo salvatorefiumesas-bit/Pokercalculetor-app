@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'ui/app_data.dart';
 import 'ui/charts_screen.dart';
 import 'ui/equity_screen.dart';
+import 'ui/probability_screen.dart';
 import 'ui/splash_screen.dart';
 import 'ui/trainer_screen.dart';
 import 'ui/updater.dart';
@@ -80,7 +81,7 @@ class _HomeShellState extends State<HomeShell> {
     });
   }
 
-  static const _titles = ['Tabelle di strategia', 'Trainer', 'Calcolatore equity'];
+  static const _titles = ['Tabelle di strategia', 'Trainer', 'Calcolatore equity', 'Probabilità'];
 
   @override
   Widget build(BuildContext context) {
@@ -89,7 +90,7 @@ class _HomeShellState extends State<HomeShell> {
       body: SafeArea(
         child: IndexedStack(
           index: tab,
-          children: const [ChartsScreen(), TrainerScreen(), EquityScreen()],
+          children: const [ChartsScreen(), TrainerScreen(), EquityScreen(), ProbabilityScreen()],
         ),
       ),
       bottomNavigationBar: NavigationBar(
@@ -99,6 +100,7 @@ class _HomeShellState extends State<HomeShell> {
           NavigationDestination(icon: Icon(Icons.grid_view), label: 'Tabelle'),
           NavigationDestination(icon: Icon(Icons.school), label: 'Trainer'),
           NavigationDestination(icon: Icon(Icons.percent), label: 'Equity'),
+          NavigationDestination(icon: Icon(Icons.casino), label: 'Probabilità'),
         ],
       ),
     );

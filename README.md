@@ -20,6 +20,15 @@ senza server.
 - **Calcolatore di equity**: da 2 a 6 giocatori, mani specifiche (`AhKd`) o
   range (`22+, A2s+, KTo+`), con board opzionale. Calcolo esatto quando
   possibile, altrimenti Monte Carlo.
+- **Probabilità**:
+  - *Calcolatore*: scegli le tue carte e il board dal mazzo. Vedi il punto
+    attuale, l'equity contro 1–8 mani casuali, la probabilità di ogni punto
+    alla prossima carta e al river (calcolo esatto) e gli outs, con le
+    percentuali al turn e al river. Da preflop: probabilità di progetti al
+    flop.
+  - *Tabelle*: probabilità preflop delle carte ricevute, tabella outs → %,
+    progetti più comuni, distribuzione dei punti dal flop al river per
+    coppia / suited connesse / suited / offsuit, texture del flop.
 - **Editor di range**: griglia 13×13 da "dipingere" col dito, slider "Top X%".
 
 ## Come funziona
@@ -31,6 +40,7 @@ senza server.
 | Matrice equity preflop 169×169 precalcolata | `assets/preflop_equity.bin`, generata da `tool/gen_preflop_equity.dart` |
 | Solver push/fold (fictitious play) | `lib/engine/pushfold.dart` |
 | Solver preflop completo (fictitious play) | `lib/engine/preflop_solver.dart` |
+| Probabilità esatte, outs, texture del flop | `lib/engine/probability.dart` |
 
 Il solver trova l'equilibrio di Nash in **chip EV** con queste
 semplificazioni, le stesse delle classiche tabelle push/fold: un solo

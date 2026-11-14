@@ -7,6 +7,9 @@ import '../engine/equity.dart';
 import '../engine/range.dart';
 import 'range_editor.dart';
 
+// Top-level: la closure dell'isolate non deve catturare lo stato del widget.
+Future<EquityResult> _runEquity(EquityRequest req) => Isolate.run(() => calculateEquity(req));
+
 /// Calcolatore di equity: mani specifiche o range, con board opzionale.
 class EquityScreen extends StatefulWidget {
   const EquityScreen({super.key});
@@ -81,7 +84,7 @@ class _EquityScreenState extends State<EquityScreen> {
         error = null;
       });
       final req = EquityRequest(playerCards: cards, playerWeights: weights, board: boardCards);
-      final res = await Isolate.run(() => calculateEquity(req));
+      final res = await _runEquity(req);
       if (!mounted) return;
       setState(() {
         result = res;
