@@ -3,7 +3,9 @@ import 'package:material_ui/material_ui.dart';
 import 'ui/app_data.dart';
 import 'ui/charts_screen.dart';
 import 'ui/equity_screen.dart';
+import 'ui/splash_screen.dart';
 import 'ui/trainer_screen.dart';
+import 'ui/updater.dart';
 
 void main() {
   runApp(const PokerGtoApp());
@@ -36,7 +38,11 @@ class _Loader extends StatefulWidget {
 }
 
 class _LoaderState extends State<_Loader> {
-  late final Future<void> _loading = AppData.load();
+  // Lo splash resta visibile almeno 2,5 secondi.
+  late final Future<void> _loading = Future.wait([
+    AppData.load(),
+    Future<void>.delayed(const Duration(milliseconds: 2500)),
+  ]);
 
   @override
   Widget build(BuildContext context) {
@@ -46,10 +52,10 @@ class _LoaderState extends State<_Loader> {
         if (snap.hasError) {
           return Scaffold(body: Center(child: Text('Errore di caricamento: ${snap.error}')));
         }
-        if (snap.connectionState != ConnectionState.done) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
-        }
-        return const HomeShell();
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 500),
+          child: snap.connectionState != ConnectionState.done ? const SplashScreen() : const HomeShell(),
+        );
       },
     );
   }
@@ -64,6 +70,15 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int tab = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Controllo aggiornamenti dopo il primo frame della schermata principale.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Updater.checkForUpdate(context);
+    });
+  }
 
   static const _titles = ['Tabelle di strategia', 'Trainer', 'Calcolatore equity'];
 

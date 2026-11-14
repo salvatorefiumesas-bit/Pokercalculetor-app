@@ -3,7 +3,6 @@ name: Build APK Android
 on:
   push:
     branches: ['**']
-    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -37,7 +36,10 @@ jobs:
         run: flutter test
 
       - name: Build APK
-        run: flutter build apk --release
+        run: >
+          flutter build apk --release
+          --build-name=1.0.${{ github.run_number }}
+          --build-number=${{ github.run_number }}
 
       - name: Rinomina APK
         run: cp build/app/outputs/flutter-apk/app-release.apk poker-gto-trainer.apk
@@ -48,8 +50,15 @@ jobs:
           name: poker-gto-trainer-apk
           path: poker-gto-trainer.apk
 
-      - name: Pubblica release (solo tag v*)
-        if: startsWith(github.ref, 'refs/tags/v')
+      # Ogni build di main diventa una release: l'app la trova e propone
+      # l'aggiornamento.
+      - name: Pubblica release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Versione 1.0.${{ github.run_number }}
+          body: ${{ github.event.head_commit.message }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
           files: poker-gto-trainer.apk

@@ -29,11 +29,20 @@ android {
         versionName = flutter.versionName
     }
 
+    // Chiave di firma fissa: serve perche' gli aggiornamenti automatici
+    // installino la nuova versione sopra quella esistente.
+    signingConfigs {
+        create("release") {
+            storeFile = file("release-keystore.jks")
+            storePassword = "pokergto-release"
+            keyAlias = "pokergto"
+            keyPassword = "pokergto-release"
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }
@@ -46,4 +55,8 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation("androidx.core:core:1.13.1")
 }
